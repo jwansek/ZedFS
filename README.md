@@ -1,5 +1,8 @@
 ![img](https://openzfs.github.io/openzfs-docs/_static/img/logo/480px-Open-ZFS-Secondary-Logo-Colour-halfsize.png)
 
+**ZedFS is the british version of ZFS. It is identical to the american version,
+apart from that it is pronounced *zed-eff-ess* not *zee-eff-ess*.**
+
 OpenZFS is an advanced file system and volume manager which was originally
 developed for Solaris and is now maintained by the OpenZFS community.
 This repository contains the code for running OpenZFS on Linux and FreeBSD.
