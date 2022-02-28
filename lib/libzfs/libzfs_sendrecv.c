@@ -294,11 +294,13 @@ send_iterate_snap(zfs_handle_t *zhp, void *arg)
 	uint64_t guid = zhp->zfs_dmustats.dds_guid;
 	uint64_t txg = zhp->zfs_dmustats.dds_creation_txg;
 	boolean_t isfromsnap, istosnap, istosnapwithnofrom;
-	char *snapname = strrchr(zhp->zfs_name, '@') + 1;
+	char *snapname;
 	const char *from = sd->fromsnap;
 	const char *to = sd->tosnap;
 
-	assert(snapname != (NULL + 1));
+	snapname = strrchr(zhp->zfs_name, '@');
+	assert(snapname != NULL);
+	++snapname;
 
 	isfromsnap = (from != NULL && strcmp(from, snapname) == 0);
 	istosnap = (to != NULL && strcmp(to, snapname) == 0);
@@ -805,8 +807,9 @@ dump_ioctl(zfs_handle_t *zhp, const char *fromsnap, uint64_t fromsnap_obj,
 		char errbuf[1024];
 		int error = errno;
 
-		(void) snprintf(errbuf, sizeof (errbuf), dgettext(TEXT_DOMAIN,
-		    "warning: cannot send '%s'"), zhp->zfs_name);
+		(void) snprintf(errbuf, sizeof (errbuf), "%s '%s'",
+		    dgettext(TEXT_DOMAIN, "warning: cannot send"),
+		    zhp->zfs_name);
 
 		if (debugnv != NULL) {
 			fnvlist_add_uint64(thisdbg, "error", error);
@@ -4168,7 +4171,7 @@ zfs_receive_one(libzfs_handle_t *hdl, int infd, const char *tosnap,
     avl_tree_t *stream_avl, char **top_zfs,
     const char *finalsnap, nvlist_t *cmdprops)
 {
-	time_t begin_time;
+	struct timespec begin_time;
 	int ioctl_err, ioctl_errno, err;
 	char *cp;
 	struct drr_begin *drrb = &drr->drr_u.drr_begin;
@@ -4194,7 +4197,7 @@ zfs_receive_one(libzfs_handle_t *hdl, int infd, const char *tosnap,
 	nvlist_t *rcvprops = NULL; /* props received from the send stream */
 	nvlist_t *oxprops = NULL; /* override (-o) and exclude (-x) props */
 	nvlist_t *origprops = NULL; /* original props (if destination exists) */
-	zfs_type_t type;
+	zfs_type_t type = ZFS_TYPE_INVALID;
 	boolean_t toplevel = B_FALSE;
 	boolean_t zoned = B_FALSE;
 	boolean_t hastoken = B_FALSE;
@@ -4202,7 +4205,10 @@ zfs_receive_one(libzfs_handle_t *hdl, int infd, const char *tosnap,
 	uint8_t *wkeydata = NULL;
 	uint_t wkeylen = 0;
 
-	begin_time = time(NULL);
+#ifndef CLOCK_MONOTONIC_RAW
+#define	CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
+#endif
+	clock_gettime(CLOCK_MONOTONIC_RAW, &begin_time);
 	bzero(origin, MAXNAMELEN);
 	bzero(tmp_keylocation, MAXNAMELEN);
 
@@ -4947,7 +4953,7 @@ zfs_receive_one(libzfs_handle_t *hdl, int infd, const char *tosnap,
 				(void) zfs_error(hdl, EZFS_BUSY, errbuf);
 				break;
 			}
-			fallthrough;
+			zfs_fallthrough;
 		default:
 			(void) zfs_standard_error(hdl, ioctl_errno, errbuf);
 		}
@@ -4987,14 +4993,23 @@ zfs_receive_one(libzfs_handle_t *hdl, int infd, const char *tosnap,
 		char buf1[64];
 		char buf2[64];
 		uint64_t bytes = read_bytes;
-		time_t delta = time(NULL) - begin_time;
-		if (delta == 0)
-			delta = 1;
+		struct timespec delta;
+		clock_gettime(CLOCK_MONOTONIC_RAW, &delta);
+		if (begin_time.tv_nsec > delta.tv_nsec) {
+			delta.tv_nsec =
+			    1000000000 + delta.tv_nsec - begin_time.tv_nsec;
+			delta.tv_sec -= 1;
+		} else
+			delta.tv_nsec -= begin_time.tv_nsec;
+		delta.tv_sec -= begin_time.tv_sec;
+		if (delta.tv_sec == 0 && delta.tv_nsec == 0)
+			delta.tv_nsec = 1;
+		double delta_f = delta.tv_sec + (delta.tv_nsec / 1e9);
 		zfs_nicebytes(bytes, buf1, sizeof (buf1));
-		zfs_nicebytes(bytes/delta, buf2, sizeof (buf1));
+		zfs_nicebytes(bytes / delta_f, buf2, sizeof (buf2));
 
-		(void) printf("received %s stream in %lld seconds (%s/sec)\n",
-		    buf1, (longlong_t)delta, buf2);
+		(void) printf("received %s stream in %.2f seconds (%s/sec)\n",
+		    buf1, delta_f, buf2);
 	}
 
 	err = 0;
@@ -5023,11 +5038,10 @@ static boolean_t
 zfs_receive_checkprops(libzfs_handle_t *hdl, nvlist_t *props,
     const char *errbuf)
 {
-	nvpair_t *nvp;
+	nvpair_t *nvp = NULL;
 	zfs_prop_t prop;
 	const char *name;
 
-	nvp = NULL;
 	while ((nvp = nvlist_next_nvpair(props, nvp)) != NULL) {
 		name = nvpair_name(nvp);
 		prop = zfs_name_to_prop(name);
@@ -5086,7 +5100,7 @@ zfs_receive_impl(libzfs_handle_t *hdl, const char *tosnap,
 
 	/* check cmdline props, raise an error if they cannot be received */
 	if (!zfs_receive_checkprops(hdl, cmdprops, errbuf))
-		return (-1);
+		return (zfs_error(hdl, EZFS_BADPROP, errbuf));
 
 	if (flags->isprefix &&
 	    !zfs_dataset_exists(hdl, tosnap, ZFS_TYPE_DATASET)) {
