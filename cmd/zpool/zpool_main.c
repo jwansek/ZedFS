@@ -518,7 +518,7 @@ print_vdev_prop_cb(int prop, void *cb)
  * that command.  Otherwise, iterate over the entire command table and display
  * a complete usage message.
  */
-static _Noreturn void
+static __attribute__((noreturn)) void
 usage(boolean_t requested)
 {
 	FILE *fp = requested ? stdout : stderr;
@@ -10924,7 +10924,7 @@ main(int argc, char **argv)
 	 * Many commands modify input strings for string parsing reasons.
 	 * We create a copy to protect the original argv.
 	 */
-	newargv = malloc((argc + 1) * sizeof (newargv[0]));
+	newargv = safe_malloc((argc + 1) * sizeof (newargv[0]));
 	for (i = 0; i < argc; i++)
 		newargv[i] = strdup(argv[i]);
 	newargv[argc] = NULL;
