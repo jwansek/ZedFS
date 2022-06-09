@@ -4,6 +4,7 @@
 /devname2devid
 /dir_rd_update
 /draid
+/file_append
 /file_check
 /file_trunc
 /file_write
@@ -18,6 +19,7 @@
 /mmap_exec
 /mmap_libaio
 /mmap_seek
+/mmap_sync
 /mmapwrite
 /nvlist_to_lua
 /randfree_file
@@ -40,6 +42,7 @@
 /ereports
 /zfs_diff-socket
 /dosmode_readonly_write
+/blake3_test
 /edonr_test
 /skein_test
 /sha2_test
