@@ -6,7 +6,7 @@
  * You may not use this file except in compliance with the License.
  *
  * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
+ * or https://opensource.org/licenses/CDDL-1.0.
  * See the License for the specific language governing permissions
  * and limitations under the License.
  *
@@ -1104,7 +1104,7 @@ zfs_secpolicy_inherit_prop(zfs_cmd_t *zc, nvlist_t *innvl, cred_t *cr)
 	(void) innvl;
 	zfs_prop_t prop = zfs_name_to_prop(zc->zc_value);
 
-	if (prop == ZPROP_INVAL) {
+	if (prop == ZPROP_USERPROP) {
 		if (!zfs_prop_user(zc->zc_value))
 			return (SET_ERROR(EINVAL));
 		return (zfs_secpolicy_write_perms(zc->zc_name,
@@ -1397,7 +1397,8 @@ getzfsvfs(const char *dsname, zfsvfs_t **zfvp)
  * which prevents all inode ops from running.
  */
 static int
-zfsvfs_hold(const char *name, void *tag, zfsvfs_t **zfvp, boolean_t writer)
+zfsvfs_hold(const char *name, const void *tag, zfsvfs_t **zfvp,
+    boolean_t writer)
 {
 	int error = 0;
 
@@ -1422,7 +1423,7 @@ zfsvfs_hold(const char *name, void *tag, zfsvfs_t **zfvp, boolean_t writer)
 }
 
 static void
-zfsvfs_rele(zfsvfs_t *zfsvfs, void *tag)
+zfsvfs_rele(zfsvfs_t *zfsvfs, const void *tag)
 {
 	ZFS_TEARDOWN_EXIT(zfsvfs, tag);
 
@@ -2321,6 +2322,8 @@ zfs_ioc_snapshot_list_next(zfs_cmd_t *zc)
 		}
 
 		if (zc->zc_simple) {
+			zc->zc_objset_stats.dds_creation_txg =
+			    dsl_get_creationtxg(ds);
 			dsl_dataset_rele(ds, FTAG);
 			break;
 		}
@@ -2406,7 +2409,7 @@ zfs_prop_set_special(const char *dsname, zprop_source_t source,
 	const char *strval = NULL;
 	int err = -1;
 
-	if (prop == ZPROP_INVAL) {
+	if (prop == ZPROP_USERPROP) {
 		if (zfs_prop_userquota(propname))
 			return (zfs_prop_set_userquota(dsname, pair));
 		return (-1);
@@ -2577,7 +2580,7 @@ retry:
 			/* inherited properties are expected to be booleans */
 			if (nvpair_type(propval) != DATA_TYPE_BOOLEAN)
 				err = SET_ERROR(EINVAL);
-		} else if (err == 0 && prop == ZPROP_INVAL) {
+		} else if (err == 0 && prop == ZPROP_USERPROP) {
 			if (zfs_prop_user(propname)) {
 				if (nvpair_type(propval) != DATA_TYPE_STRING)
 					err = SET_ERROR(EINVAL);
@@ -2853,11 +2856,11 @@ zfs_ioc_inherit_prop(zfs_cmd_t *zc)
 		 * and reservation to the received or default values even though
 		 * they are not considered inheritable.
 		 */
-		if (prop != ZPROP_INVAL && !zfs_prop_inheritable(prop))
+		if (prop != ZPROP_USERPROP && !zfs_prop_inheritable(prop))
 			return (SET_ERROR(EINVAL));
 	}
 
-	if (prop == ZPROP_INVAL) {
+	if (prop == ZPROP_USERPROP) {
 		if (!zfs_prop_user(propname))
 			return (SET_ERROR(EINVAL));
 
@@ -4488,7 +4491,7 @@ zfs_check_settable(const char *dsname, nvpair_t *pair, cred_t *cr)
 	uint64_t intval, compval;
 	int err;
 
-	if (prop == ZPROP_INVAL) {
+	if (prop == ZPROP_USERPROP) {
 		if (zfs_prop_user(propname)) {
 			if ((err = zfs_secpolicy_write_perms(dsname,
 			    ZFS_DELEG_PERM_USERPROP, cr)))
@@ -4925,7 +4928,7 @@ static boolean_t zfs_ioc_recv_inject_err;
 static int
 zfs_ioc_recv_impl(char *tofs, char *tosnap, char *origin, nvlist_t *recvprops,
     nvlist_t *localprops, nvlist_t *hidden_args, boolean_t force,
-    boolean_t resumable, int input_fd,
+    boolean_t heal, boolean_t resumable, int input_fd,
     dmu_replay_record_t *begin_record, uint64_t *read_bytes,
     uint64_t *errflags, nvlist_t **errors)
 {
@@ -4950,7 +4953,7 @@ zfs_ioc_recv_impl(char *tofs, char *tosnap, char *origin, nvlist_t *recvprops,
 		return (SET_ERROR(EBADF));
 
 	noff = off = zfs_file_off(input_fp);
-	error = dmu_recv_begin(tofs, tosnap, begin_record, force,
+	error = dmu_recv_begin(tofs, tosnap, begin_record, force, heal,
 	    resumable, localprops, hidden_args, origin, &drc, input_fp,
 	    &off);
 	if (error != 0)
@@ -5034,7 +5037,7 @@ zfs_ioc_recv_impl(char *tofs, char *tosnap, char *origin, nvlist_t *recvprops,
 				/* -x property */
 				const char *name = nvpair_name(nvp);
 				zfs_prop_t prop = zfs_name_to_prop(name);
-				if (prop != ZPROP_INVAL) {
+				if (prop != ZPROP_USERPROP) {
 					if (!zfs_prop_inheritable(prop))
 						continue;
 				} else if (!zfs_prop_user(name))
@@ -5293,7 +5296,7 @@ zfs_ioc_recv(zfs_cmd_t *zc)
 	begin_record.drr_u.drr_begin = zc->zc_begin_record;
 
 	error = zfs_ioc_recv_impl(tofs, tosnap, origin, recvdprops, localprops,
-	    NULL, zc->zc_guid, B_FALSE, zc->zc_cookie, &begin_record,
+	    NULL, zc->zc_guid, B_FALSE, B_FALSE, zc->zc_cookie, &begin_record,
 	    &zc->zc_cookie, &zc->zc_obj, &errors);
 	nvlist_free(recvdprops);
 	nvlist_free(localprops);
@@ -5326,6 +5329,7 @@ zfs_ioc_recv(zfs_cmd_t *zc)
  *     "begin_record" -> non-byteswapped dmu_replay_record_t
  *     "input_fd" -> file descriptor to read stream from (int32)
  *     (optional) "force" -> force flag (value ignored)
+ *     (optional) "heal" -> use send stream to heal data corruption
  *     (optional) "resumable" -> resumable flag (value ignored)
  *     (optional) "cleanup_fd" -> unused
  *     (optional) "action_handle" -> unused
@@ -5346,6 +5350,7 @@ static const zfs_ioc_key_t zfs_keys_recv_new[] = {
 	{"begin_record",	DATA_TYPE_BYTE_ARRAY,	0},
 	{"input_fd",		DATA_TYPE_INT32,	0},
 	{"force",		DATA_TYPE_BOOLEAN,	ZK_OPTIONAL},
+	{"heal",		DATA_TYPE_BOOLEAN,	ZK_OPTIONAL},
 	{"resumable",		DATA_TYPE_BOOLEAN,	ZK_OPTIONAL},
 	{"cleanup_fd",		DATA_TYPE_INT32,	ZK_OPTIONAL},
 	{"action_handle",	DATA_TYPE_UINT64,	ZK_OPTIONAL},
@@ -5366,6 +5371,7 @@ zfs_ioc_recv_new(const char *fsname, nvlist_t *innvl, nvlist_t *outnvl)
 	char *tosnap;
 	char tofs[ZFS_MAX_DATASET_NAME_LEN];
 	boolean_t force;
+	boolean_t heal;
 	boolean_t resumable;
 	uint64_t read_bytes = 0;
 	uint64_t errflags = 0;
@@ -5395,6 +5401,7 @@ zfs_ioc_recv_new(const char *fsname, nvlist_t *innvl, nvlist_t *outnvl)
 	input_fd = fnvlist_lookup_int32(innvl, "input_fd");
 
 	force = nvlist_exists(innvl, "force");
+	heal = nvlist_exists(innvl, "heal");
 	resumable = nvlist_exists(innvl, "resumable");
 
 	/* we still use "props" here for backwards compatibility */
@@ -5411,7 +5418,7 @@ zfs_ioc_recv_new(const char *fsname, nvlist_t *innvl, nvlist_t *outnvl)
 		return (error);
 
 	error = zfs_ioc_recv_impl(tofs, tosnap, origin, recvprops, localprops,
-	    hidden_args, force, resumable, input_fd, begin_record,
+	    hidden_args, force, heal, resumable, input_fd, begin_record,
 	    &read_bytes, &errflags, &errors);
 
 	fnvlist_add_uint64(outnvl, "read_bytes", read_bytes);
@@ -7475,7 +7482,7 @@ zfsdev_get_state(minor_t minor, enum zfsdev_state_type which)
 
 	for (zs = zfsdev_state_list; zs != NULL; zs = zs->zs_next) {
 		if (zs->zs_minor == minor) {
-			smp_rmb();
+			membar_consumer();
 			switch (which) {
 			case ZST_ONEXIT:
 				return (zs->zs_onexit);

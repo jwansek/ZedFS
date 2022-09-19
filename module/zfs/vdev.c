@@ -6,7 +6,7 @@
  * You may not use this file except in compliance with the License.
  *
  * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
+ * or https://opensource.org/licenses/CDDL-1.0.
  * See the License for the specific language governing permissions
  * and limitations under the License.
  *
@@ -136,7 +136,15 @@ int zfs_vdev_standard_sm_blksz = (1 << 17);
  */
 int zfs_nocacheflush = 0;
 
-uint64_t zfs_vdev_max_auto_ashift = ASHIFT_MAX;
+/*
+ * Maximum and minimum ashift values that can be automatically set based on
+ * vdev's physical ashift (disk's physical sector size).  While ASHIFT_MAX
+ * is higher than the maximum value, it is intentionally limited here to not
+ * excessively impact pool space efficiency.  Higher ashift values may still
+ * be forced by vdev logical ashift or by user via ashift property, but won't
+ * be set automatically as a performance optimization.
+ */
+uint64_t zfs_vdev_max_auto_ashift = 14;
 uint64_t zfs_vdev_min_auto_ashift = ASHIFT_MIN;
 
 void
@@ -1846,6 +1854,24 @@ vdev_set_deflate_ratio(vdev_t *vd)
 }
 
 /*
+ * Choose the best of two ashifts, preferring one between logical ashift
+ * (absolute minimum) and administrator defined maximum, otherwise take
+ * the biggest of the two.
+ */
+uint64_t
+vdev_best_ashift(uint64_t logical, uint64_t a, uint64_t b)
+{
+	if (a > logical && a <= zfs_vdev_max_auto_ashift) {
+		if (b <= logical || b > zfs_vdev_max_auto_ashift)
+			return (a);
+		else
+			return (MAX(a, b));
+	} else if (b <= logical || b > zfs_vdev_max_auto_ashift)
+		return (MAX(a, b));
+	return (b);
+}
+
+/*
  * Maximize performance by inflating the configured ashift for top level
  * vdevs to be as close to the physical ashift as possible while maintaining
  * administrator defined limits and ensuring it doesn't go below the
@@ -1856,7 +1882,8 @@ vdev_ashift_optimize(vdev_t *vd)
 {
 	ASSERT(vd == vd->vdev_top);
 
-	if (vd->vdev_ashift < vd->vdev_physical_ashift) {
+	if (vd->vdev_ashift < vd->vdev_physical_ashift &&
+	    vd->vdev_physical_ashift <= zfs_vdev_max_auto_ashift) {
 		vd->vdev_ashift = MIN(
 		    MAX(zfs_vdev_max_auto_ashift, vd->vdev_ashift),
 		    MAX(zfs_vdev_min_auto_ashift,
@@ -4463,7 +4490,10 @@ vdev_get_stats_ex(vdev_t *vd, vdev_stat_t *vs, vdev_stat_ex_t *vsx)
 		vs->vs_configured_ashift = vd->vdev_top != NULL
 		    ? vd->vdev_top->vdev_ashift : vd->vdev_ashift;
 		vs->vs_logical_ashift = vd->vdev_logical_ashift;
-		vs->vs_physical_ashift = vd->vdev_physical_ashift;
+		if (vd->vdev_physical_ashift <= ASHIFT_MAX)
+			vs->vs_physical_ashift = vd->vdev_physical_ashift;
+		else
+			vs->vs_physical_ashift = 0;
 
 		/*
 		 * Report fragmentation and rebuild progress for top-level,
@@ -5233,7 +5263,7 @@ vdev_split(vdev_t *vd)
 }
 
 void
-vdev_deadman(vdev_t *vd, char *tag)
+vdev_deadman(vdev_t *vd, const char *tag)
 {
 	for (int c = 0; c < vd->vdev_children; c++) {
 		vdev_t *cvd = vd->vdev_child[c];
@@ -5496,7 +5526,7 @@ vdev_props_set_sync(void *arg, dmu_tx_t *tx)
 		}
 
 		switch (prop = vdev_name_to_prop(propname)) {
-		case VDEV_PROP_USER:
+		case VDEV_PROP_USERPROP:
 			if (vdev_prop_user(propname)) {
 				strval = fnvpair_value_string(elem);
 				if (strlen(strval) == 0) {
@@ -5580,7 +5610,7 @@ vdev_prop_set(vdev_t *vd, nvlist_t *innvl, nvlist_t *outnvl)
 		uint64_t intval = 0;
 		char *strval = NULL;
 
-		if (prop == VDEV_PROP_USER && !vdev_prop_user(propname)) {
+		if (prop == VDEV_PROP_USERPROP && !vdev_prop_user(propname)) {
 			error = EINVAL;
 			goto end;
 		}
@@ -5790,7 +5820,7 @@ vdev_prop_get(vdev_t *vd, nvlist_t *innvl, nvlist_t *outnvl)
 					    KM_SLEEP);
 				for (uint64_t i = 0; i < vd->vdev_children;
 				    i++) {
-					char *vname;
+					const char *vname;
 
 					vname = vdev_name(vd->vdev_child[i],
 					    namebuf, sizeof (namebuf));
@@ -5937,7 +5967,7 @@ vdev_prop_get(vdev_t *vd, nvlist_t *innvl, nvlist_t *outnvl)
 			case VDEV_PROP_COMMENT:
 				/* Exists in the ZAP below */
 				/* FALLTHRU */
-			case VDEV_PROP_USER:
+			case VDEV_PROP_USERPROP:
 				/* User Properites */
 				src = ZPROP_SRC_LOCAL;
 

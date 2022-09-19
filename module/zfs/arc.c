@@ -6,7 +6,7 @@
  * You may not use this file except in compliance with the License.
  *
  * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
+ * or https://opensource.org/licenses/CDDL-1.0.
  * See the License for the specific language governing permissions
  * and limitations under the License.
  *
@@ -848,12 +848,13 @@ enum arc_hdr_alloc_flags {
 };
 
 
-static abd_t *arc_get_data_abd(arc_buf_hdr_t *, uint64_t, void *, int);
-static void *arc_get_data_buf(arc_buf_hdr_t *, uint64_t, void *);
-static void arc_get_data_impl(arc_buf_hdr_t *, uint64_t, void *, int);
-static void arc_free_data_abd(arc_buf_hdr_t *, abd_t *, uint64_t, void *);
-static void arc_free_data_buf(arc_buf_hdr_t *, void *, uint64_t, void *);
-static void arc_free_data_impl(arc_buf_hdr_t *hdr, uint64_t size, void *tag);
+static abd_t *arc_get_data_abd(arc_buf_hdr_t *, uint64_t, const void *, int);
+static void *arc_get_data_buf(arc_buf_hdr_t *, uint64_t, const void *);
+static void arc_get_data_impl(arc_buf_hdr_t *, uint64_t, const void *, int);
+static void arc_free_data_abd(arc_buf_hdr_t *, abd_t *, uint64_t, const void *);
+static void arc_free_data_buf(arc_buf_hdr_t *, void *, uint64_t, const void *);
+static void arc_free_data_impl(arc_buf_hdr_t *hdr, uint64_t size,
+    const void *tag);
 static void arc_hdr_free_abd(arc_buf_hdr_t *, boolean_t);
 static void arc_hdr_alloc_abd(arc_buf_hdr_t *, int);
 static void arc_access(arc_buf_hdr_t *, kmutex_t *);
@@ -2280,7 +2281,7 @@ arc_evictable_space_decrement(arc_buf_hdr_t *hdr, arc_state_t *state)
  * it is not evictable.
  */
 static void
-add_reference(arc_buf_hdr_t *hdr, void *tag)
+add_reference(arc_buf_hdr_t *hdr, const void *tag)
 {
 	arc_state_t *state;
 
@@ -2316,7 +2317,7 @@ add_reference(arc_buf_hdr_t *hdr, void *tag)
  * list making it eligible for eviction.
  */
 static int
-remove_reference(arc_buf_hdr_t *hdr, kmutex_t *hash_lock, void *tag)
+remove_reference(arc_buf_hdr_t *hdr, kmutex_t *hash_lock, const void *tag)
 {
 	int cnt;
 	arc_state_t *state = hdr->b_l1hdr.b_state;
@@ -2740,8 +2741,8 @@ arc_can_share(arc_buf_hdr_t *hdr, arc_buf_t *buf)
  */
 static int
 arc_buf_alloc_impl(arc_buf_hdr_t *hdr, spa_t *spa, const zbookmark_phys_t *zb,
-    void *tag, boolean_t encrypted, boolean_t compressed, boolean_t noauth,
-    boolean_t fill, arc_buf_t **ret)
+    const void *tag, boolean_t encrypted, boolean_t compressed,
+    boolean_t noauth, boolean_t fill, arc_buf_t **ret)
 {
 	arc_buf_t *buf;
 	arc_fill_flags_t flags = ARC_FILL_LOCKED;
@@ -2841,7 +2842,7 @@ arc_buf_alloc_impl(arc_buf_hdr_t *hdr, spa_t *spa, const zbookmark_phys_t *zb,
 	return (0);
 }
 
-static char *arc_onloan_tag = "onloan";
+static const char *arc_onloan_tag = "onloan";
 
 static inline void
 arc_loaned_bytes_update(int64_t delta)
@@ -2900,7 +2901,7 @@ arc_loan_raw_buf(spa_t *spa, uint64_t dsobj, boolean_t byteorder,
  * Return a loaned arc buffer to the arc.
  */
 void
-arc_return_buf(arc_buf_t *buf, void *tag)
+arc_return_buf(arc_buf_t *buf, const void *tag)
 {
 	arc_buf_hdr_t *hdr = buf->b_hdr;
 
@@ -2914,7 +2915,7 @@ arc_return_buf(arc_buf_t *buf, void *tag)
 
 /* Detach an arc_buf from a dbuf (tag) */
 void
-arc_loan_inuse_buf(arc_buf_t *buf, void *tag)
+arc_loan_inuse_buf(arc_buf_t *buf, const void *tag)
 {
 	arc_buf_hdr_t *hdr = buf->b_hdr;
 
@@ -3589,7 +3590,8 @@ arc_convert_to_raw(arc_buf_t *buf, uint64_t dsobj, boolean_t byteorder,
  * The buf is returned thawed since we expect the consumer to modify it.
  */
 arc_buf_t *
-arc_alloc_buf(spa_t *spa, void *tag, arc_buf_contents_t type, int32_t size)
+arc_alloc_buf(spa_t *spa, const void *tag, arc_buf_contents_t type,
+    int32_t size)
 {
 	arc_buf_hdr_t *hdr = arc_hdr_alloc(spa_load_guid(spa), size, size,
 	    B_FALSE, ZIO_COMPRESS_OFF, 0, type);
@@ -3607,8 +3609,8 @@ arc_alloc_buf(spa_t *spa, void *tag, arc_buf_contents_t type, int32_t size)
  * for bufs containing metadata.
  */
 arc_buf_t *
-arc_alloc_compressed_buf(spa_t *spa, void *tag, uint64_t psize, uint64_t lsize,
-    enum zio_compress compression_type, uint8_t complevel)
+arc_alloc_compressed_buf(spa_t *spa, const void *tag, uint64_t psize,
+    uint64_t lsize, enum zio_compress compression_type, uint8_t complevel)
 {
 	ASSERT3U(lsize, >, 0);
 	ASSERT3U(lsize, >=, psize);
@@ -3635,9 +3637,9 @@ arc_alloc_compressed_buf(spa_t *spa, void *tag, uint64_t psize, uint64_t lsize,
 }
 
 arc_buf_t *
-arc_alloc_raw_buf(spa_t *spa, void *tag, uint64_t dsobj, boolean_t byteorder,
-    const uint8_t *salt, const uint8_t *iv, const uint8_t *mac,
-    dmu_object_type_t ot, uint64_t psize, uint64_t lsize,
+arc_alloc_raw_buf(spa_t *spa, const void *tag, uint64_t dsobj,
+    boolean_t byteorder, const uint8_t *salt, const uint8_t *iv,
+    const uint8_t *mac, dmu_object_type_t ot, uint64_t psize, uint64_t lsize,
     enum zio_compress compression_type, uint8_t complevel)
 {
 	arc_buf_hdr_t *hdr;
@@ -3844,7 +3846,7 @@ arc_hdr_destroy(arc_buf_hdr_t *hdr)
 }
 
 void
-arc_buf_destroy(arc_buf_t *buf, void* tag)
+arc_buf_destroy(arc_buf_t *buf, const void *tag)
 {
 	arc_buf_hdr_t *hdr = buf->b_hdr;
 
@@ -4163,7 +4165,7 @@ arc_evict_state_impl(multilist_t *ml, int idx, arc_buf_hdr_t *marker,
 	 * this CPU are able to make progress, make a voluntary preemption
 	 * call here.
 	 */
-	cond_resched();
+	kpreempt(KPREEMPT_SYNC);
 
 	return (bytes_evicted);
 }
@@ -5049,10 +5051,11 @@ arc_reap_cb(void *arg, zthr_t *zthr)
 	 */
 	free_memory = arc_available_memory();
 
-	int64_t to_free =
-	    (arc_c >> arc_shrink_shift) - free_memory;
-	if (to_free > 0) {
-		arc_reduce_target_size(to_free);
+	int64_t can_free = arc_c - arc_c_min;
+	if (can_free > 0) {
+		int64_t to_free = (can_free >> arc_shrink_shift) - free_memory;
+		if (to_free > 0)
+			arc_reduce_target_size(to_free);
 	}
 	spl_fstrans_unmark(cookie);
 }
@@ -5207,7 +5210,7 @@ arc_is_overflowing(boolean_t use_reserve)
 }
 
 static abd_t *
-arc_get_data_abd(arc_buf_hdr_t *hdr, uint64_t size, void *tag,
+arc_get_data_abd(arc_buf_hdr_t *hdr, uint64_t size, const void *tag,
     int alloc_flags)
 {
 	arc_buf_contents_t type = arc_buf_type(hdr);
@@ -5222,7 +5225,7 @@ arc_get_data_abd(arc_buf_hdr_t *hdr, uint64_t size, void *tag,
 }
 
 static void *
-arc_get_data_buf(arc_buf_hdr_t *hdr, uint64_t size, void *tag)
+arc_get_data_buf(arc_buf_hdr_t *hdr, uint64_t size, const void *tag)
 {
 	arc_buf_contents_t type = arc_buf_type(hdr);
 
@@ -5321,7 +5324,7 @@ arc_wait_for_eviction(uint64_t amount, boolean_t use_reserve)
  * limit, we'll only signal the reclaim thread and continue on.
  */
 static void
-arc_get_data_impl(arc_buf_hdr_t *hdr, uint64_t size, void *tag,
+arc_get_data_impl(arc_buf_hdr_t *hdr, uint64_t size, const void *tag,
     int alloc_flags)
 {
 	arc_state_t *state = hdr->b_l1hdr.b_state;
@@ -5389,14 +5392,15 @@ arc_get_data_impl(arc_buf_hdr_t *hdr, uint64_t size, void *tag,
 }
 
 static void
-arc_free_data_abd(arc_buf_hdr_t *hdr, abd_t *abd, uint64_t size, void *tag)
+arc_free_data_abd(arc_buf_hdr_t *hdr, abd_t *abd, uint64_t size,
+    const void *tag)
 {
 	arc_free_data_impl(hdr, size, tag);
 	abd_free(abd);
 }
 
 static void
-arc_free_data_buf(arc_buf_hdr_t *hdr, void *buf, uint64_t size, void *tag)
+arc_free_data_buf(arc_buf_hdr_t *hdr, void *buf, uint64_t size, const void *tag)
 {
 	arc_buf_contents_t type = arc_buf_type(hdr);
 
@@ -5413,7 +5417,7 @@ arc_free_data_buf(arc_buf_hdr_t *hdr, void *buf, uint64_t size, void *tag)
  * Free the arc data buffer.
  */
 static void
-arc_free_data_impl(arc_buf_hdr_t *hdr, uint64_t size, void *tag)
+arc_free_data_impl(arc_buf_hdr_t *hdr, uint64_t size, const void *tag)
 {
 	arc_state_t *state = hdr->b_l1hdr.b_state;
 	arc_buf_contents_t type = arc_buf_type(hdr);
@@ -6029,6 +6033,23 @@ top:
 				    ARC_FLAG_PREDICTIVE_PREFETCH);
 			}
 
+			/*
+			 * If there are multiple threads reading the same block
+			 * and that block is not yet in the ARC, then only one
+			 * thread will do the physical I/O and all other
+			 * threads will wait until that I/O completes.
+			 * Synchronous reads use the b_cv whereas nowait reads
+			 * register a callback. Both are signalled/called in
+			 * arc_read_done.
+			 *
+			 * Errors of the physical I/O may need to be propagated
+			 * to the pio. For synchronous reads, we simply restart
+			 * this function and it will reassess.  Nowait reads
+			 * attach the acb_zio_dummy zio to pio and
+			 * arc_read_done propagates the physical I/O's io_error
+			 * to acb_zio_dummy, and thereby to pio.
+			 */
+
 			if (*arc_flags & ARC_FLAG_WAIT) {
 				cv_wait(&hdr->b_l1hdr.b_cv, hash_lock);
 				mutex_exit(hash_lock);
@@ -6575,7 +6596,7 @@ arc_freed(spa_t *spa, const blkptr_t *bp)
  * a new hdr for the buffer.
  */
 void
-arc_release(arc_buf_t *buf, void *tag)
+arc_release(arc_buf_t *buf, const void *tag)
 {
 	arc_buf_hdr_t *hdr = buf->b_hdr;
 
@@ -10314,7 +10335,7 @@ l2arc_rebuild(l2arc_dev_t *dev)
 		    !dev->l2ad_first)
 			goto out;
 
-		cond_resched();
+		kpreempt(KPREEMPT_SYNC);
 		for (;;) {
 			mutex_enter(&l2arc_rebuild_thr_lock);
 			if (dev->l2ad_rebuild_cancel) {

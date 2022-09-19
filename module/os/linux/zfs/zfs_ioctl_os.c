@@ -6,7 +6,7 @@
  * You may not use this file except in compliance with the License.
  *
  * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
+ * or https://opensource.org/licenses/CDDL-1.0.
  * See the License for the specific language governing permissions
  * and limitations under the License.
  *
@@ -37,6 +37,7 @@
  * Copyright 2017 RackTop Systems.
  * Copyright (c) 2017 Open-E, Inc. All Rights Reserved.
  * Copyright (c) 2019 Datto Inc.
+ * Copyright (c) 2021 Klara, Inc.
  */
 
 #include <sys/types.h>
@@ -150,6 +151,48 @@ out:
 
 }
 
+static int
+zfs_ioc_userns_attach(zfs_cmd_t *zc)
+{
+	int error;
+
+	if (zc == NULL)
+		return (SET_ERROR(EINVAL));
+
+	error = zone_dataset_attach(CRED(), zc->zc_name, zc->zc_cleanup_fd);
+
+	/*
+	 * Translate ENOTTY to ZFS_ERR_NOT_USER_NAMESPACE as we just arrived
+	 * back from the SPL layer, which does not know about ZFS_ERR_* errors.
+	 * See the comment at the user_ns_get() function in spl-zone.c for
+	 * details.
+	 */
+	if (error == ENOTTY)
+		error = ZFS_ERR_NOT_USER_NAMESPACE;
+
+	return (error);
+}
+
+static int
+zfs_ioc_userns_detach(zfs_cmd_t *zc)
+{
+	int error;
+
+	if (zc == NULL)
+		return (SET_ERROR(EINVAL));
+
+	error = zone_dataset_detach(CRED(), zc->zc_name, zc->zc_cleanup_fd);
+
+	/*
+	 * See the comment in zfs_ioc_userns_attach() for details on what is
+	 * going on here.
+	 */
+	if (error == ENOTTY)
+		error = ZFS_ERR_NOT_USER_NAMESPACE;
+
+	return (error);
+}
+
 uint64_t
 zfs_max_nvlist_src_size_os(void)
 {
@@ -168,6 +211,10 @@ zfs_ioctl_update_mount_cache(const char *dsname)
 void
 zfs_ioctl_init_os(void)
 {
+	zfs_ioctl_register_dataset_nolog(ZFS_IOC_USERNS_ATTACH,
+	    zfs_ioc_userns_attach, zfs_secpolicy_config, POOL_CHECK_NONE);
+	zfs_ioctl_register_dataset_nolog(ZFS_IOC_USERNS_DETACH,
+	    zfs_ioc_userns_detach, zfs_secpolicy_config, POOL_CHECK_NONE);
 }
 
 #ifdef CONFIG_COMPAT
@@ -322,8 +369,7 @@ MODULE_ALIAS("zcommon");
 MODULE_ALIAS("zzstd");
 MODULE_DESCRIPTION("ZFS");
 MODULE_AUTHOR(ZFS_META_AUTHOR);
-MODULE_LICENSE("Lua: MIT");
-MODULE_LICENSE("zstd: Dual BSD/GPL");
-MODULE_LICENSE("Dual BSD/GPL");
+MODULE_LICENSE("Dual MIT/GPL"); /* lua */
+MODULE_LICENSE("Dual BSD/GPL"); /* zstd / misc */
 MODULE_LICENSE(ZFS_META_LICENSE);
 MODULE_VERSION(ZFS_META_VERSION "-" ZFS_META_RELEASE);

@@ -6,7 +6,7 @@
  * You may not use this file except in compliance with the License.
  *
  * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
+ * or https://opensource.org/licenses/CDDL-1.0.
  * See the License for the specific language governing permissions
  * and limitations under the License.
  *
@@ -273,7 +273,6 @@ zfs_get_pci_slots_sys_path(const char *dev_name)
 			free(address2);
 			if (asprintf(&path, "/sys/bus/pci/slots/%s",
 			    ep->d_name) == -1) {
-				free(tmp);
 				continue;
 			}
 			break;

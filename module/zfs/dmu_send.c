@@ -6,7 +6,7 @@
  * You may not use this file except in compliance with the License.
  *
  * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
- * or http://www.opensolaris.org/os/licensing.
+ * or https://opensource.org/licenses/CDDL-1.0.
  * See the License for the specific language governing permissions
  * and limitations under the License.
  *
@@ -1913,7 +1913,7 @@ send_reader_thread(void *arg)
 
 struct dmu_send_params {
 	/* Pool args */
-	void *tag; // Tag that dp was held with, will be used to release dp.
+	const void *tag; // Tag dp was held with, will be used to release dp.
 	dsl_pool_t *dp;
 	/* To snapshot args */
 	const char *tosnap;
@@ -2362,7 +2362,7 @@ dmu_send_impl(struct dmu_send_params *dspp)
 	dsl_dataset_t *to_ds = dspp->to_ds;
 	zfs_bookmark_phys_t *ancestor_zb = &dspp->ancestor_zb;
 	dsl_pool_t *dp = dspp->dp;
-	void *tag = dspp->tag;
+	const void *tag = dspp->tag;
 
 	err = dmu_objset_from_ds(to_ds, &os);
 	if (err != 0) {
